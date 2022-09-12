@@ -1,1 +1,0 @@
-python CreateLeanReport.py --backtest=./json/PairCommodityTrading.json --output=./report.html --user=user.json
