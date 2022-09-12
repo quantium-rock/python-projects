@@ -1,0 +1,838 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
+using System.Drawing;
+
+using RDotNet;
+
+using QuantConnect;
+using QuantConnect.Data.Market;
+using QuantConnect.Securities;
+using QuantConnect.Indicators;
+using QuantConnect.Data;
+using QuantConnect.Algorithm;
+using QuantConnect.Data.Consolidators;
+using QuantConnect.Brokerages;
+using QuantConnect.Data.Custom.Intrinio;
+using QuantConnect.Data.Custom;
+using QuantConnect.Data.Custom.Tiingo;
+using QuantConnect.Orders;
+using QuantConnect.Data.UniverseSelection;
+using QuantConnect.Orders.Fees;
+using QuantConnect.Orders.Slippage;
+using System.Collections;
+using QuantConnect.Orders.Fills;
+
+// desktop-http-port --> To execute more than one Lean at the same time
+// desktop-exe --> Responsible for the charting
+
+// Factor files --> For introducing Splits and Dividends: 
+// Date of Previous Close (Factors are done after market closes) | Dividend (price factor) | Split Factor
+
+// QuantConnect.ToolBox --> Tools for downloading data from multiple sources and Helper Classes
+
+/* MarketHoursDatabase. --> To access at the file with market hours, by writting "Market" in VS it appears a lot of options for exchange information 
+   MarketHoursDatabase.FromDataFolder().GetEntry(QuantConnect.Market.USA, null, SecurityType.Equity);
+   var dataTimeZone = marketHoursDbEntry.DataTimeZone;
+   var exchangeTimeZone = marketHoursDbEntry.ExchangeHours.TimeZone;*/
+
+For Python Debbugging: 
+
+						#These statements will hold the algorithm execution until Lean is attached to the python debugger
+						import ptvsd
+						ptvsd.enable_attach()
+						ptvsd.wait_for_attach()
+
+						Set Breakpoint --> ptvsd.break_into_debugger()
+
+
+#region backtesting
+	/*
+	 * "environment" : "backtesting-dektop"
+	 * Python Toolbox for reporting --> Generates HTML for reporting
+	*/
+#endregion
+
+#region Things for Initialization
+    SetStartDate(2004, 5, 31);  //Set Start Date
+    SetEndDate(2019,01,16);
+    //SetEndDate(DateTime.Now.Date.AddDays(-1)); // Or use a relative date. If unspecified the end date defaults to yesterday. 
+    //SetTimeZone("Europe/Madrid");
+    SetAccountCurrency("USD");
+    SetCash("USD" , 100000);             //Set Strategy Cash
+                                         //SetCash("EUR", 100000);             //Set Strategy Cash
+                                         //SetCash("JPY", 100000);             //Set Strategy Cash
+
+    /*
+     *Algorithms can manually subscribe to data for specific assets they need, or use universes to choose groups of assets based on 
+     * filtering criteria (e.g. all stocks with volumes greater than $10M/day). See more about Universes here. 
+     * There is no official limit to how much data you can ask for; but there are practical resource limitations. 
+     * AddEquity(), AddForex(), AddCrypto(), AddCfd(), AddOption()
+     * international trading across multiple timezones and markets --> Market. used to distinguish between the same tickers on different exchanges
+     * Resolution. ; fillForward
+     * DataNormalizationMode --> Adjusted price, split, dividend, raw...
+     * SetWarmUp(TimeSpan period) , SetWarmUp(int barCount) --> During the warm up period you cannot place a trade. 
+     * bool IsWarmingUp property to determine if the warm up period has completed. 
+     * By default --> model your algorithm with margin-modeling
+     * SetBrokerageModel(BrokerageName brokerage, AccountType account). 
+     * When using cash, leverage is disabled by default, and the cash settlement period is set to 3 days for Equity securities. 
+     * Margin accounts are settled immediately and have a leverage of 2.  
+     * QuantConnect.Securities.Security.MarginModel
+     * Slice has all the data available for this moment
+     * To keep trades easy to compare between asset classes we mark all orders in UtcTime. 
+     */
+
+    //SetTimeZone("Europe/Madrid");
+    //SetTimeZone(NodaTime.DateTimeZone.Utc);
+    //SetTimeZone(TimeZones.Chicago);
+#endregion
+
+#region Type Of Data
+    /*
+    dynamic z = slice[symbol]; //Dynamic Typing
+
+    //slice.ContainsKey("");
+
+    //Static Typing
+    TradeBar taderBar = slice.Bars[symbol];
+    TradeBars tradeBars = slice.Bars;
+    DataDictionary<TradeBar> tradeBars_ = slice.Get<TradeBar>();
+    if (slice.Dividends.ContainsKey("SPY"))
+    {
+        Log($"SPY paid a dividend of {slice.Dividends["SPY"].Distribution}");
+    }
+
+
+     * TradeBars are only supported for Equity, Options, and Future asset types; QuoteBars are only supported for Forex, CFD, and Future asset types. 
+     * There are seven financial data types: Tick, TradeBar, QuoteBar, Delisting, SymbolChangedEvent, Split and Dividend. 
+     * All data extends from BaseData - the core data class which provides Symbol, Time and Value properties. 
+     * Ticks: LastPrice , Quantity, Bidprice, AskPrice, AskSize, BidSize, TradeTick,...
+     * QuoteBar: AskBar (QuoteBar.Ask.Close, ...), BidBar (QuoteBar.Bid.Close, ...), MidBar (QuoteBar.Close, ...)
+     * To get Splits --> SetDataNormalizationMode(DataNormalizationMode.Raw)
+     * SymbolChangedEvents provides notice of new ticker names for stocks, or mergers of two tickers into one. 
+     * It provides the OldSymbol and NewSymbol tickers. 
+     * Delisting events provide notice that an asset is no longer trading on the exchange. A delisting warning is issued the final trading day for 
+     * a stock delisting event to give you algorithm time to gracefully exit out of positions before forced termination. 
+     */
+#endregion
+
+#region Securities and Protfolio
+	//Securities[symbol].SetFeeModel(Orders.Fees.InteractiveBrokersFeeModel);
+	//Portfolio[symbol]
+	//Transactions
+	//Schedule
+	//Notify.
+	//Universe.DollarVolume.Top   
+
+	/* 
+	 *  Securities property stores a Security object for each asset in your algorithm. 
+	 *  Security objects hold the models (backtesting behaviors for creating realistic backtests) and properties of an asset.
+	 *  Each security can be completely customized to behave as you'd like. Securities is a Dictionary<Symbol, Security>
+	 *  
+	 *  The Portfolio property is a collection of SecurityHolding objects to provide easy access to the holding properties. 
+	 *  This property also provides information about the whole portfolio state
+	 *  Portfolio class is a Dictionary<Symbol, SecurityHolding>
+	 *  
+	 *  Security object properties:
+	    class Security {
+	        Resolution Resolution;
+	        bool HasData;
+	        bool Invested;
+	        DateTime LocalTime;
+	        SecurityHolding Holdings;
+	        SecurityExchange Exchange;
+	        IFeeModel FeeModel;
+	        IFillModel FillModel;
+	        ISlippageModel SlippageModel;
+	        ISecurityPortfolioModel PortfolioModel;
+	        ISecurityMarginModel MarginModel;
+	        ISettlementModel SettlementModel;
+	        IVolatilityModel VolatilityModel;
+	        ISecurityDataFilter DataFilter;
+	    }
+
+	    The ActiveSecurities lets you select the assets currently in your universe. This is useful for iterating over those securities 
+	    from your universe selection.
+	 */
+#endregion
+
+#region Orders and Transactions
+    /*
+     * Going long is denoted with a ordering positive number, and short a negative one. 
+     * Placing an order generates an OrderTicket which you can use to update, cancel or check the status of your order. 
+     * To update an order you can call the Update method on the OrderTicket:
+
+        OrderTicket order = MarketOrder("", 10);
+        UpdateOrderFields x = new UpdateOrderFields();
+        x.StopPrice = (decimal)1.1235;
+        order.Update(x);
+        if (order.Status == OrderStatus.Submitted) {}
+     * The Transactions property is a helper that provides easy access to current and past orders and order tickets.  
+     * Transactions. --> CancelOpenOrders, CancelOrder, GetOpenOrders, GetOrderById, GetOrders
+     * OrderTicket --> LimitOrder, MarketOrder, StopMarketOrder, StopLimitOrder, MarketOnOpenOrder, MarketOnCloseOrder (Orders must be submitted 15min before closing. )
+     * Often portfolio based algorithms want to set the portfolio based on percentage weighting --> SetHoldings()
+     * SetHoldings(Symbol symbol, double percentage, bool liquidateExistingHoldings = false)
+     *  liquidate existing holdings is set to true any existing holdings will first be sold --> for rebalancing 
+     *  or use Liquidate() = sells all holdings in your portfolio
+
+     *  Or set portfolio to equal weighting of all securities:
+        var weighting = 1m / Securities.Count;
+        foreach(var security in Securities.Values) {
+            SetHoldings(security.Symbol, weighting);
+        }
+     * Transactions.MarketOrderFillTimeout = TimeSpan.FromMinutes(2); --> Synchronous Market Order (waits for fill response from broker)
+     * Asynchronous Market Order --> This type of market order is sent to a broker without waiting for a market order fill response from the broker. 
+     * MarketOrder("SPY", 100, asynchronous: true);
+     * Order Error codes --> OrderError 
+     */
+#endregion
+
+#region Scheduled
+    /*
+     * Scheduled events allow you to trigger code to run at specific times of day. This happens regardless of your data events.
+     * Schedule.On(DateRules.On() , TimeRules.At())
+     */
+#endregion
+
+#region Indicators
+
+    /*
+     * Identity --> returns the value of the asset --> To make the difference of two assets = new Indicator
+     * IsReady to know when indicator has values = period
+     * Initialization --> Algorithm Warm-Up with SetWarmUp or History Request Warm-Up with History()
+     * Can create indicators with higher or equal resolution as the asset we are operating
+     * RegisterIndicator() method --> create an indicator with its constructor and register the indicator for automatic updates
+     * Indicator.Update() --> update your indicator manually without DataConsolidated event handler
+     * Manual Update gives you the freedom to Update whenever you want
+     * You can also apply RegisterIndicator to register the price data with the specified field. 
+     * Indicator Extensions --> Indicators are composable - meaning they can be chained together to create unique combinations.
+     * Indicator Extensions: Plus(), Minus(), Times(), Over(), Of(), SMA(), EMA(),MAX(), MIN()
+     * Indicator objects have the Updated event that fires after the indicator is updated. To respond to Updated, we define an event handler method
+     */
+#endregion
+
+#region RollingWindow
+    /*
+     *RollingWindow is an array of data that allows for reverse list access semantics, where the object with index [0] 
+     * refers to the most recent item in the window and index [Length-1] refers to the last item in the window, where 
+     * Length is the number of elements in the window.
+     * closeWindow = new RollingWindow<decimal>(4);
+     * tradeBarWindow = new RollingWindow<TradeBar>(2);
+     * quoteBarWindow = new RollingWindow<QuoteBar>(2);
+     * Add new Element --> method .Add()
+     * You can combine it with indicators
+     */
+#endregion
+
+#region Universe
+
+    /*
+     *Universe Selection sends a large data set into a filter function. After passing through your filters the algorithm 
+     * needs you to return an array of Symbol objects. LEAN automatically subscribes to these new symbols and adds 
+     * them to your algorithm.
+     * Two filters: 1. Coarse Filter ; 2. Fine Filter
+     * Coarse Universe selection allows you to pick a set of stocks by its volume, price or whether it has fundamental data. 
+     * This is helpful to narrow down your universe to liquid assets
+     * In Initialize: AddUniverse(MyCoarseFilterFunction);
+     * Define the coarse filter function as a local function and Define a SelectionData Class
+     * AddUniverse(MyCoarseFilterFunction, MyFineFundamentalFilterFunction);--> You need to functions to pass
+     * Configure Universe Settings --> UniverseSettings.
+     * SetSecurityInitializer() --> you can apply any fill model or special data requests on a per-security basis. --> BEFORE ADDING ASSETS!
+     * When universe contents are changed (securities are added or removed from the algorithm) we generate an OnSecuritiesChanged event.
+     * Universe Creation Short Cuts --> AddUniverse(Universe.DollarVolume.[Top(),Bottom(),Percentile()..])
+     * Universe --> Has helper functions for creating a Universe
+     * Custom universes allow you to perform selection on your own datasets. Custom universe types extend from BaseData
+     * Option Universes: When you add an option to the algorithm it adds many many individual option contract securities. 
+       These are modelled as a "universe" of option contracts. We provide the SetFilter method to help narrow the option strike 
+       and expiry dates down to a range you are interested. 
+     * Future Universes: the universe filter is primarily focused on the future expiration date.
+     */
+#endregion
+
+#region Historical Data
+    /*
+     * HistoryProvider.Initialize(new HistoryProviderInitializeParameters()) --> Set History Provider
+     * Hisotry() --> Get history as IEnumerable<ClasseOfData> where ClassOfData = QuoteBar, TradeBar, Slice, Quandl, ...
+     * The warm up feature feeds data to your event handlers from before your start date for a fixed period. 
+     * In live mode the history API can return data up to 5 seconds before the present moment.
+     * The returned data is presented in ascending order, meaning that last element has most recent information. 
+     * Warming up your algorithm causes data from before the algorithm starts to be fed into the conventional data event handlers.
+     * The data flowing to your algorithm will seamlessly pass from historical to live data. The flag bool IsWarmingUp 
+       can be used to monitor this transition. 
+     * During the warm up period you cannot submit orders. Warm up also does not support universe selection while the algorithm is warming up. 
+     */
+#endregion
+
+#region Charting
+    /*
+     * Plot("Series Name", value); (Series Name = label or legend)
+     * With this code a graph is added underneath your Strategy Equity chart and your requested values are displayed over time.
+     * Plot("Chart Name or Tab Name", "Series Name", value); To create a new chart (new tab) you should also specify the chart name in your request.
+     * A chart is made from many series. You can also initialize your charts manually (AddChart() or new Chart()).
+     * AddSeries() or new Series():
+     * In creating Series objects you must specify the name of the series, the SeriesType and the index the series operates on. 
+       The series index refers to its position in the chart - for example; if all the series are index 0, they will lay on top of each other. 
+       If each series has its own index, it will be have several mini-charts stack next to each other. 
+
+       var stockPlot = new Chart("Trade Plot");
+       var buyOrders = new Series("Buy", SeriesType.Scatter, "$", Color.Red, ScatterMarkerSymbol.Triangle);
+       var sellOrders = new Series("Sell", SeriesType.Scatter, "$", Color.Blue, ScatterMarkerSymbol.TriangleDown);
+       stockPlot.AddSeries(buyOrders);
+       stockPlot.AddSeries(sellOrders);
+       AddChart(stockPlot);
+     * SeriesTypes --> Line, Scatter, Candle, Bar, Flag
+     * ScatterMarkerSymbol --> Circle, Diamond, Square, Triangle, TriangleDown
+     * Color.ColorName
+     */
+#endregion
+
+#region Reality Modelling
+    /*
+     * Portfolio. --> All reality models
+     * Models can be used to improve the accuracy of your backtesting.
+     * Basic default models assume you are trading on highly liquid assets, but if you are trading high volumes, or 
+     * on low volume assets you should update these models to be more realistic. 
+     * All models are set on a per security basis --> Securities["Asset"].
+     * ConstantFeeTransactionModel()
+     * Common models and properties relating to each of the brokerages we support: fees, 
+     * fill models, slippage models and trading markets for a brokerage. In addition they validate it is possible to submit trades to the brokerage
+     * Brokerage models set:
+     * Transaction fees, Supported asset classes for the brokerage, Validate orders types and settings, Default account type (margin or cash account),
+     * Support for extended market hours, Default leverage for assets,  Default settlement models.
+     * InteractiveBrokersBrokerageModel and OandaBrokerageModel --> SetBrokerageModel(BrokerageName.OandaBrokerageModel, AccountType.Cash);
+     * Slippage is the difference in price between your last reported quote and the real price the trade filled at.
+     * 
+     * Fee models implement the IFeeModel interface. If you wish to implement your own fee model you can start with the FeeModel and override 
+     * methods you wish to change. IFeeModel.GetOrderFee accepts a single parameter of type OrderFeeParameters and returns an OrderFee that 
+     * represents a cash amount with a given currency. 
+     * 
+     * Slippage models implement the ISlippageModel interface. We provide the VolumeShareSlippageModel for forex based securities, and the 
+     * ConstantSlippageModel for Equities. 
+     * users may wish to implement their own volatility based slippage model - increasing the accuracy of your backtests in volatile markets. 
+     * Slippage based on trend or gaps in the market
+     * 
+     * Fill models give you control over order fills. Each supported order type is passed through a dedicated method and returns an OrderEvent object. 
+     * OrderEvents are used to carry information about order partial fills or errors.
+     * The Fill Models implement the IFillModel interface. If you wish to implement your own fill model you can start with the FillModel and 
+     * override methods you wish to change. We provide the ImmediateFillModel which assumes orders and immediately and completely filled.
+     * 
+     * Buying power models (also known as margin models) control how much buying power (leverage) your algorithm has to make trades.
+     * Buying power models implement the IBuyingPowerModel interface and default to the BuyingPowerModel class. If you wish to implement your 
+     * own buying power model you can start with the default and override methods you wish to change.
+     * We also provide the PatternDayTradingMarginModel to model intraday pattern day trading for US equities which provides 4x intraday 
+     * leverage and 2x overnight leverage. 
+     * Portfolio.MarginCallModel = MarginCallModel.Null; --> Disable margin call model
+
+     * After a trade is made brokerages settle the cash depending on the markets and account type. This is managed by our Settlement Models. 
+     * The most common settlement type is immediate - where the funds are available for trading immediately. This is handled by the ImmediateSettlementModel. 
+     * US Equities trading with cash accounts is typically settled 3 days after the transaction occurred. This is managed by the DelayedSettlementModel.
+	 * Settlement models implement the ISettlementModel interface. You can create your own settlement model by implementing this method.
+
+	 * Portfolio models control how order fills are applied to your portfolio. They take an OrderEvent, Security and SecurityPortfolioManager object 
+	 * and update the holdings to reflect the new final position. 
+	 * Portfolio models implement the ISecurityPortfolioModel interface. 
+
+	 * The volatility model is a property of a security. --> For options backtesting
+	 * Volatility models implement the VolatilityModel interface. We default to the NullVolatilityModel which returns 0 volatility at all times. 
+	 * As a helper we also provide the RelativeStandardDeviationVolatilityModel which calculates the volatility based on standard deviation. 
+     */
+#endregion
+
+#region Messages for Debugging
+    /*
+     * Debug(), Log(), Error()
+     * Quit(); //Option: Instruct algorithm to stop.
+     */
+#endregion
+
+#region LiveTrading
+	/*
+	 * LiveMode ignores SetStartDate and SetEndDate
+	 * In LiveMode you have to take off SetCash or SetAccountCurrency
+	 * if (LiveMode) SetRuntimeStatistic(symbol, slice.QuoteBars[symbol].Close);
+	 * Notify.Email("myemail@gmail.com", "Test", "Test Body", "test attachment");
+	   Notify.Sms("+11233456789", Time.ToString("u") + ">> Test message from live BTC server.");
+	 * "environment" : "live-desktop", "live-oanda", "live-interactive"
+
+	 * Universe selection occurs roughly 10-12 hours after the market stops trading for the day at 04:00 - 07:00 EST Tuesday, 
+	   Wednesday, Thursday, Friday and Saturday. Once the market completely closes (21:00 EST) we process all the ticks into 
+	   trade bars and universe data for the live environment.
+	   Universe selection does not happen when you deploy your algorithm. You must deploy before 4am or wait for 
+	   the next trading day for universe selection to take place.
+	   This is identical behaviour to backtesting.
+
+	   To overcome this create a Custom Universe Selection implementing UserDefinedUniverse
+	 */
+#endregion
+
+#region Framework
+	 /*
+	  * Universe Selection; Alpha Creation; Portfolio Construction; Execution; Risk Management; Algorithm Scoring
+	  * 1. Universe Selection - Select your assets.
+	  * 2. Alpha Creation - Generate trading signals.
+	  * 3. Portfolio Construction - Determine position size targets.
+	  * 4. Execution - Place trades to reach your position sizes.
+	  * 5. Risk Management - Manage the market risks.
+
+	  * Assets selected by the Universe Selection Model are fed into your Alpha Model to generate trade signals. 
+	    The trade signals (Insights) are converted into Portfolio Targets by the Portfolio Construction Model. 
+	    The Portfolio Targets hold a target share quantity we'd like the algorithm to hold. 
+	    To execute these targets efficiently the Execution module fills the targets efficiently over time. 
+	    Finally; the Risk Management Model ensures our targets are still within safe risk parameters and adjusts the portfolio targets if required.
+
+	  * Universe Selection Model --> Framework component for selecting assets for your algorithm.	  
+	  * Alpha Creation Model --> Framework component for that generates trade signals; on the assets in your universe for your algorithm.
+	  * Insight --> A trade signal generated by your algorithm Alpha Model. An Insight indicates the Direction, 
+	  	Magnitude, Confidence and Period of your signal.
+	  * Portfolio Construction Model --> Framework component that constructs a target portfolio from Insight signals created by the Alpha Model.
+	  * Portfolio Target --> A target quantity of holdings (e.g. shares, contracts) the algorithm desires to reach. 
+	  	This target is created by the Portfolio Construction Model.
+	  * Execution --> Framework component responsible for fulfilling the Portfolio Targets set by the Portfolio Construction Model. 
+	  	Execute trades to reach the desired portfolio make up.
+	  * Risk Model --> Framework component that manages ongoing market and portfolio risk; ensuring the algorithm remains in target parameters.*/
+
+		#region Universe Selection
+		  /*
+		  * Universe Selection:
+		  	UniverseSettings.Resolution = Resolution.Minute;
+		  	var symbols = new [] { QuantConnect.Symbol.Create("SPY", SecurityType.Equity, Market.USA) };
+		  	SetUniverseSelection( new ManualUniverseSelectionModel(symbols) );
+
+		  	There are 3 types of universe: Manual Universes - Universes which use a fixed, static set of assets. We can also add asset with AddData(), etc..
+		  								   Fundamental Universes - Universes based on coarse price or fundamental data.
+		  								   Scheduled Universes - Universes triggering on fixed regular intervals.
+
+		  	For Fundamental Universe Selection we can use two helper methods: CoarseFundamentalUniverseSelectionModel and the FineFundamentalUniverseSelectionModel. 
+		  	To define a fundamental Universe Selection model you need to create an instance of the class and set with the SetUniverseSelection method.
+		  	The Coarse selection function is passed a list of CoarseFundamental objects and returns a list of Symbol objects. The Fine selection function 
+		  	is passed a list of FineFundamental objects generated from coarse selection results and should return a list of Symbol objects.
+			
+			For Scheduled Universe Selection use the class ScheduledUniverseSelectionModel.
+
+			For creating universe models: Universe Models must implement a IUniverseSelectionModel interface. 
+										  It has one method, CreateUniverses(QCAlgorithmFramework algorithm).
+
+			For configuring Securities: SetSecurityInitializer --> SetSecurityInitializer(x => x.SetDataNormalizationMode(DataNormalizationMode.Raw));
+
+			The Universe Selection Model is in charge of selecting assets; so you should not assume any fixed set of assets. 
+			When assets are added to your universe they will trigger an OnSecuritiesChanged() event. From there you can initialize any state 
+			or history required for your Alpha Model.
+
+			The CoarseSelectionFunction and FineSelectionFunction are set to triggered at 00:00 every day by default. 
+		 */
+		#endregion
+
+		#region Alpha Creation
+			/*
+			 * The Alpha Model is primarily concerned with predicting market trends and signalling to the algorithm the best moments for making an investment. 
+			   These signals, or Insight objects contain the Direction, Magnitude and Confidence of a market prediction. Insights should be generated on 
+			   a defined set of assets provided by the Universe Selection Model and only emitted when they change. 
+			   An Insight is a single prediction for an asset.
+
+			   To set an Alpha Model you can use the SetAlpha(alpha) method.
+			   To create Alpha Models you must implement the IAlphaModel interface: Two methods: Update() OnSecurityChanged()
+
+			   Multiple insights being traded together --> Insight.Group(insight1, insight2, insight3);
+
+			   The algorithm framework can take multiple Alpha models and generate insights on all of them. 
+			   The combined stream of Insights is then passed to the Portfolio Construction model. 
+			   SetAlpha(new CompositeAlphaModel(), new RsiAlphaModel(), new EmaCrossAlphaModel()));
+			   Each Alpha Model has a unique name and the Insights generated are automatically named according to the source Alpha Model which created it.
+
+			   Good Design Patterns:
+			   	- 1. Use Assets Defined By Universe Selection Model
+			   	- 2. Give Alpha Models A Unique Name			   
+			*/
+		#endregion
+
+		#region Portfolio Construction
+			   	/*
+			   	 * The Portfolio Construction Model receives Insight objects from the Alpha Model and uses them to create PortfolioTarget 
+			   	   objects for the execution model. A Portfolio Target provides the number of units of the asset we'd like to hold.
+
+			   	 * To set your portfolio construction model you should use the SetPortfolioConstruction( IPortfolioConstructionModel ) method.
+			   	 * Portfolio Construction Models have one primary method: CreateTargets().
+			   	 * The Portfolio Construction Model also receives the OnSecuritiesChanged() event which can optionally be used to perform actions 
+			   	   when there are security additions or removals. If you are inheriting from the PortfolioConstructionModel base class this 
+			   	   is an optional method. 
+			   	 * The PortfolioTarget class accepts two parameters for its constructor: Symbol and Quantity.
+				 * This is consumed by the execution model which seeks to reach this target as efficiently as possible, 
+				   you should not assume orders are filled immediately. 
+				 * Percent(algorithm, Symbol, percent) --> calculates a quantity equivalent to a percentage of portfolio value. (for margin accounts)
+				 * Portfolio Construction Model should return a targets array --> new PortfolioTarget[] {  new PortfolioTarget("Symbol", Quantity)  };
+
+				 * The NullPortfolioConstructionModel can be used to skip the execution phase of the algorithm i.e. "do nothing". This is useful when 
+				   you're trying analyze the Alpha Model in isolation. All Alpha Streams algorithms can use Null Portfolio Construction 
+				   and Null Execution Models. --> SetPortfolioConstruction( new NullPortfolioConstructionModel() ); 
+				 * The Equal Weighting Portfolio Construction Model assigns an equal share of the portfolio to insights supplied to it. 
+				   SetPortfolioConstruction( new EqualWeightingPortfolioConstructionModel() );
+				 * We also have two implementations more: Mean Variance Portfolio Construction Model --> minimum volatility possible.
+				  										  Black Litterman Portfolio Construction --> (takes Insights from multiple alphas and combines 
+				  										  											  them into a single portfolio. These multiple Alpha Model 
+				  										  											  sources can be seen as the "investor views" required of the 
+				  										  											  classical model.)
+			   	*/
+		#endregion
+
+		#region Execution
+			/*
+			 * The Execution Model is primarily concerned with efficiently executing trades. 
+			   It seeks to find the optimal price to fill orders and manages the orders.
+			 * It receives a PortfolioTarget array from the Portfolio Construction Model and uses them to place trades in the market, 
+			   seeking to reach the units indicated in the Portfolio Target.
+			 * To set your execution model you should use the SetExecution( IExecutionModel ) method
+			 * When the targets arrive at the Execution Model they have already been risk adjusted by the Risk Management Model. 
+			   Like all models; the Execution Model only recieves updates to the portfolio target share counts. You will not receive all the targets at once.
+			   SetExecution( new ImmediateExecutionModel() ); 
+			 * Execution models have one required method to implement Execute(algorithm, targets).
+			 * The PortfolioTarget objects are created by the Portfolio Construction Model and then adjusted by the Risk Management Module. 
+			   The final risk adjusted portfolio targets are delivered to your execution model for fulfillment. 
+			 * Types of Execution: Immediate Execution Model, VWAP Execution Model, Standard Deviation Execution Model
+			*/        
+		#endregion
+
+		#region Risk Management
+			 /*
+			  * The Risk Management Model seeks to manage risk on the PortfolioTarget collection created by the Portfolio Construction Model. 
+			    It is applied to the targets before they reach the Execution Model. 
+			  * Implementations Examples: - Trailing Stop Risk Management Model
+			  							  - Option Hedging Risk Management Model
+			  							  - Sector Exposure Risk Management Model
+			  							  - Flash Crash Detection Risk Management Model
+			  * To set a Risk Management Model use the SetRiskManagement() method: SetRiskManagement( new NullRiskManagementModel() );			  
+			  * The Risk Management Model should extend the RiskManagementModel class and has one required method: ManageRisk() 
+			    which receives an array of PortfolioTarget objects.
+			  * The Maximum Drawdown Risk Management Module monitors portfolio holdings and when extended beyond a predefined drawdown 
+			    limit it liquidates the portfolio.
+			  * The Sector Exposure Risk Management Module limits the exposure to a specific industry sector to predefined maximum 
+			    percentage. --> Needs Morning Star Data 
+			 */
+		#endregion
+
+		#region Algorithm Scoring
+			    /*
+			     * Put scores to algorithm performance.
+			     * Direction Score: The direction score is a measure of the directional accuracy of the predictions of your algorithm. 
+			     					When you create an Insight from an Alpha Module you create a prediction the market will move Up or Down. 
+			     					If your prediction is correct during your insight timeframe, you receive a positive score of [1]. 
+			     					If the asset moves in the wrong direction you will receive a [0] score.
+			     * Magnitude Score: An insight can optionally set the expected magnitude change of the asset over the insight period. 
+			     					This expected return can be used in the Portfolio Construction model to improve results. 
+			     					The magnitude score is calculated based on the distribution of the magnitude over the insight period. 
+			     					If your magnitude is correct at the endtime you will receive a high weighting. 
+			     					If in the time leading up to your endpoint you achieve the target magnitude you'll receive weighting towards 
+			     					your score but not as much.
+									If your insight immediately achieves the target magnitude and remains there for the duration of the 
+									period you will receive a perfect score.
+				 * Estimated Alpha Value: To assign an approximate value of the revenue potential for framework algorithms we calculate the 
+				 						  mean insight value. When an insight is created and successfully fulfills its expectations there is 
+				 						  potential for a profit. If an investor had followed the signal blindly, and exited on completion of 
+				 						  the insight period, the resulting gain or loss is the Insight Value. The insight value is calculated as:
+
+										  Insight Value = Insight Price Change x Volume Depth Available
+
+										  The estimated algorithm hypothetical value is the sum of these insight values calculated on a monthly basis.
+				 * Insight Confidence:  Insights can optionally be assigned a confidence score. This is an indication of the strength of evidence for 
+				 						a specific insight. Models consuming insight scores can use these confidences to assign more weight to high 
+				 						confidence expectations.
+
+										When calculating the confidence of an insight you should try and apply statistical techniques. 
+										How frequently has this pattern or input resulted in a successful prediction? If you normalize your signal 
+										into a standard distribution, how often does the signal reach this threshold?
+			    */
+		#endregion
+#endregion
+
+
+
+namespace QuantConnect.Algorithm.CSharp
+{
+    public class Test : QCAlgorithm
+    {
+        public string symbol;
+        public ExponentialMovingAverage ema;
+        public MovingAverageConvergenceDivergence macd;
+        public int count;
+
+        /*
+         * The Initialize method is called to setup your strategy. Here you can request data, set starting cash or warm up periods. 
+         * It is called just once at the start of your algorithm.
+         */
+
+        public override void Initialize()
+        {
+            symbol = "AUDCAD";
+            //var doji = CandlestickPatterns.Doji("SPY", Resolution.Daily);
+
+            #region Realistic Modeling
+	            //SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin);
+	            //QuantConnect.Securities.Security.MarginModel.SetLeverage
+	            //Securities["MSFT"].SetDataNormalizationMode(DataNormalizationMode.Raw);
+
+	            //SetBrokerageModel(BrokerageName.OandaBrokerage, AccountType.Margin);
+	            //Securities[symbol].SetFeeModel(new CustomFeeModel("EUR"));
+
+
+	            // Set EURUSD to use FXCM's transaction fees:
+	            //Securities["EURUSD"].FeeModel = new FxcmFeeModel();
+
+	            // Assigning securities custom fee models:
+	            //Securities["SPY"].SetFeeModel(new ConstantFeeModel((decimal)1.5));
+            #endregion
+
+            #region Custom Data
+	            //AddData<CustomDynamicDataImplementation>(symbol, Resolution.Daily, true, 10);
+	            //AddData<IntrinioEconomicData>(IntrinioEconomicDataSources.Commodities.CrudeOilWTI, Resolution.Daily);
+	            //AddData<Quandl>()
+	            //AddData<Tiingo>
+	            // All data must extend from BaseData and override the Reader and GetSource methods. 
+            #endregion
+
+            #region Add Data
+	            //AddSecurity(SecurityType.Forex, symbol, Resolution.Daily);
+	            //AddSecurity(SecurityType.Equity, "SPY", Resolution.Daily);
+	            AddForex(symbol, Resolution.Daily, Market.Oanda);
+	            //AddForex("EURUSD", Resolution.Daily, Market.Oanda, true);
+	            //var spy = AddEquity("SPY");
+	            //spy.MarginModel = new SecurityMarginModel(3);
+            #endregion
+
+            #region Consolidator Data
+	            /* var consolidator = new TradeBarConsolidator(15);
+	             * consolidator.DataConsolidated
+	             * SubscriptionManager.AddConsolidator("SPY", consolidator);
+	             * Commonly this is used to create 5, 10 or 15 minute bars from minute data.
+	             * You should register your indicator with the RegisterIndicator function which 
+	             * will automatically create a consolidator and pipe the data into your Indicator class. 
+	            */
+            #endregion            
+
+            //SetBenchmark(dt => 100000m); ; //Default SPY
+            //AddSecurity(SecurityType.Equity, "SPY", Resolution.Daily);
+            //SetBenchmark("SPY");
+
+            //SetWarmup(TimeSpan.FromDays(10));
+
+            #region Create Indicators
+	            ema = EMA(symbol, 5, Resolution.Daily);
+	            //macd = new MovingAverageConvergenceDivergence("MACD", 72, 189, 9, MovingAverageType.Exponential);
+	            //var identityConsolidator = new IdentityDataConsolidator<CustomDynamicDataImplementation>();
+	            var identityConsolidator = new IdentityDataConsolidator<QuoteBar>();
+	            RegisterIndicator(symbol, ema, identityConsolidator, x => x.Value);
+	            //RegisterIndicator(symbol, ema, Resolution.Daily);            
+            #endregion            
+
+            count = 0;
+
+            Log("Això és un Log");
+
+            Console.WriteLine("\nSTARTING ALGORITHM\n");
+
+            // Take the top 50 by dollar volume using coarse
+            // Then the top 10 by PERatio using fine
+            /*AddUniverse(
+                coarse => {
+                    return (from c in coarse
+                            where c.DollarVolume > 10000000 &&
+                                    c.Price > 10 && c.HasFundamentalData
+                            orderby c.DollarVolume descending
+                            select c.Symbol).Take(50);
+                },
+                fine => {
+                    return (from f in fine
+                            orderby f.ValuationRatios.PERatio ascending
+                            select f.Symbol).Take(10);
+                });*/
+
+            // You can also create your own brokerage model: IBrokerageModel
+            /*class MyBrokerage : DefaultBrokerage
+            {
+                // Custom implementation of brokerage here.
+            }
+
+            SetBrokerageModel(new MyBrokerage());*/
+
+            //Securities["AAPL"].MarginModel = new PatternDayTradingMarginModel();
+            //Portfolio.MarginCallModel = MarginCallModel.Null; --> Disable MarginCall model
+        }
+
+        //EventHandlers for Data
+
+        public override void OnData(Slice slice) {}
+
+        public override void OnOrderEvent(OrderEvent orderEvent) { //Orders create lots of events you can use to track their status. }
+
+        public override void OnEndOfDay() {}
+
+        public override void OnWarmupFinished() {}
+
+        //Other EventHandlers        
+
+        public void OnData(TradeBars data) { // TradeBars objects are piped into this method. }
+
+        public void OnData(Ticks data) { // Ticks objects are piped into this method. }
+
+        public void OnData(QuoteBars data)
+        {
+            Plot(symbol, "CLOSE", data[symbol].Ask.Close);
+            Plot(symbol, "EMA", ema.Current.Value);            
+
+            count++;
+
+            if (count == 1) //29 
+            {
+
+                MarketOrder(symbol, 100000);                
+
+                Console.WriteLine($"Buying {symbol}  'Shares': {symbol}: " + data[symbol].Close);
+
+                Console.WriteLine("Time: " + Time.ToLongDateString() + " " + Time.ToLongTimeString() + data[symbol].Close.ToString());
+            }
+        }
+
+        #region Event Handler for Custom Data
+	        /*
+	        public void OnData(CustomDynamicDataImplementation data)
+	        {
+	            Plot(symbol, "Close", data.Value);
+	            Plot("MACD", macd.Slow, macd.Fast);
+
+	            if (data.Close != 0 && (Time - last_time).TotalDays >= 30 && Portfolio.Cash > 10000)
+	            {
+	                last_time = Time;
+
+	                Order(symbol, Portfolio.Cash/10);
+
+	                Console.WriteLine($"Buying {symbol}  'Shares': {symbol}: " + data.Close);
+
+	                Console.WriteLine("Time: " + Time.ToLongDateString() + " " + Time.ToLongTimeString() + data.Close.ToString());
+	            }
+	        }
+	        */
+
+        #endregion
+    }
+
+    // Custom fee implementation
+    public class CustomFeeModel : FeeModel
+    {
+        private string accountCurrency;
+
+        public CustomFeeModel(string currency)
+        {
+            this.accountCurrency = currency;
+        }
+
+        public override OrderFee GetOrderFee(OrderFeeParameters parameters)
+        {
+            // custom fee math
+            var fee = Math.Max(1m, parameters.Security.Price
+                               * parameters.Order.AbsoluteQuantity
+                               * 0.00001m);
+            return new OrderFee(new CashAmount(fee, this.accountCurrency));
+        }
+    }
+
+    // Non accountCurrency custom fee model to pay order fees in a desired currency
+    public class NonAccountCurrencyCustomFeeModel : FeeModel
+    {
+        public override OrderFee GetOrderFee(OrderFeeParameters parameters)
+        {
+            return new OrderFee(new CashAmount(1m, "ETH"));
+        }
+    }
+
+    // Custom slippage implementation
+    public class CustomSlippageModel : ISlippageModel
+    {
+        private readonly QCAlgorithm _algorithm;
+
+        public CustomSlippageModel(QCAlgorithm algorithm)
+        {
+            _algorithm = algorithm;
+        }
+
+        public decimal GetSlippageApproximation(Security asset, Order order)
+        {
+            // custom slippage math
+            var slippage = asset.Price * 0.0001m * (decimal)Math.Log10(2 * (double)order.AbsoluteQuantity);
+            _algorithm.Log("CustomSlippageModel: " + slippage);
+            return slippage;
+        }
+    }
+
+    // Custom fill model implementation stub
+    public class CustomFillModel : FillModel
+    {
+        private readonly QCAlgorithm _algorithm;
+        private readonly Random _random = new Random(387510346); // seed it for reproducibility
+        private readonly Dictionary<int,decimal> _absoluteRemainingByOrderId = new Dictionary<int, decimal>();
+
+        public CustomFillModel(QCAlgorithm algorithm)
+        {
+            _algorithm = algorithm;
+        }
+
+        public override OrderEvent MarketFill(Security asset, MarketOrder order)
+        {
+            // this model randomly fills market orders
+            decimal absoluteRemaining;
+            if (!_absoluteRemainingByOrderId.TryGetValue(order.Id, out absoluteRemaining))
+            {
+                absoluteRemaining = order.AbsoluteQuantity;
+                _absoluteRemainingByOrderId.Add(order.Id, order.AbsoluteQuantity);
+            }
+            var fill = base.MarketFill(asset, order);
+            var absoluteFillQuantity = (int)(Math.Min(absoluteRemaining, _random.Next(0, 2 * (int)order.AbsoluteQuantity)));
+            fill.FillQuantity = Math.Sign(order.Quantity) * absoluteFillQuantity;
+
+            if (absoluteRemaining == absoluteFillQuantity)
+            {
+                fill.Status = OrderStatus.Filled;
+                _absoluteRemainingByOrderId.Remove(order.Id);
+            }
+            else
+            {
+                absoluteRemaining = absoluteRemaining - absoluteFillQuantity;
+                _absoluteRemainingByOrderId[order.Id] = absoluteRemaining;
+                fill.Status = OrderStatus.PartiallyFilled;
+            }
+            _algorithm.Log("CustomFillModel: " + fill);
+            return fill;
+        }
+    }
+
+    // Algorithm framework model that produces insights
+	class MyAlphaModel : IAlphaModel, INotifiedSecurityChanges
+	{
+	    // Updates this alpha model with the latest data from the algorithm.
+	    // This is called each time the algorithm receives data for subscribed securities
+	    Insight[] Update(QCAlgorithmFramework algorithm, Slice data) {
+	         // Generate insights on the securities in universe.
+	    }
+
+	    void OnSecuritiesChanged(QCAlgorithmFramework algorithm, SecurityChanges changes) {
+         // Handle security changes in from your universe model.
+    }
+
+    // Basic Execution Model Scaffolding Structure Example
+	class MyExecutionModel : ExecutionModel 
+	{
+
+   	   // Fill the supplied portfolio targets efficiently.
+	   public override void Execute(QCAlgorithmFramework algorithm, IPortfolioTarget[] targets)
+	   {
+	      // NOP
+	   }
+
+	   //  Optional: Securities changes event for handling new securities.
+	   public override void OnSecuritiesChanged(QCAlgorithmFramework algorithm,
+	                                            SecurityChanges changes)
+	   {
+	   }
+	}
+}
+
